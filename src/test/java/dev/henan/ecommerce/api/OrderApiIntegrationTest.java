@@ -24,8 +24,7 @@ class OrderApiIntegrationTest extends AbstractIntegrationTest {
                 "city": "Londrina",
                 "state": "PR",
                 "zipCode": "86010-000"
-              },
-              "shippingFee": 25.00
+              }
             }
             """;
 
@@ -98,11 +97,15 @@ class OrderApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("Requisicao sem token responde 401 no mesmo contrato de erro da API")
     void deveRecusarPedidoSemAutenticacao() throws Exception {
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(NOVO_PEDIDO))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.path").value("/api/v1/orders"));
     }
 
     @Test

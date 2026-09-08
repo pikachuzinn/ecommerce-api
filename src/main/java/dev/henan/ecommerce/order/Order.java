@@ -108,6 +108,19 @@ public class Order {
         touch();
     }
 
+    /**
+     * Define o frete calculado pelo servidor. So vale enquanto o pedido esta em
+     * aberto: depois de pago, mudar o valor cobrado seria reescrever a historia.
+     */
+    public void applyShippingFee(BigDecimal fee) {
+        requireEditable();
+        if (fee == null || fee.signum() < 0) {
+            throw new BusinessException("O frete nao pode ser negativo.");
+        }
+        this.shippingFee = fee;
+        touch();
+    }
+
     /** Soma dos itens, sem frete. */
     public BigDecimal getItemsTotal() {
         return items.stream()

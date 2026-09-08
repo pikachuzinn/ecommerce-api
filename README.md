@@ -37,6 +37,7 @@ de estados do pedido e autorização por dono do recurso.
 | Filtro dinâmico com Criteria API | [`ProductSpecifications`](src/main/java/dev/henan/ecommerce/catalog/ProductSpecifications.java) |
 | Tratamento centralizado de erro com contrato estável | [`GlobalExceptionHandler`](src/main/java/dev/henan/ecommerce/common/exception/GlobalExceptionHandler.java) |
 | Segurança stateless com JWT e autorização por papel e por dono | [`SecurityConfig`](src/main/java/dev/henan/ecommerce/config/SecurityConfig.java) |
+| Valor cobrado calculado no servidor, nunca enviado pelo cliente | [`ShippingCalculator`](src/main/java/dev/henan/ecommerce/order/shipping/ShippingCalculator.java) |
 | Schema versionado com Flyway, `ddl-auto: validate` | [`db/migration`](src/main/resources/db/migration) |
 | Testes de integração contra PostgreSQL real (Testcontainers) | [`AbstractIntegrationTest`](src/test/java/dev/henan/ecommerce/api/AbstractIntegrationTest.java) |
 
@@ -235,8 +236,7 @@ curl -s -X POST http://localhost:8080/api/v1/orders \
     "shippingAddress": {
       "street": "Rua das Flores", "number": "100", "district": "Centro",
       "city": "Londrina", "state": "PR", "zipCode": "86010-000"
-    },
-    "shippingFee": 25.00
+    }
   }'
 
 # 4. Pagar com Pix
@@ -378,7 +378,7 @@ então a ordem de execução não importa.
 
 - [ ] **Fase 2 — agente de IA sobre esta API:** classificação automática de pedidos
       em risco, atendimento por linguagem natural e webhooks para orquestração (n8n).
-- [ ] Cupons de desconto e regras de frete por região
+- [ ] Cupons de desconto e faixas de frete por CEP (hoje o frete é por região/UF)
 - [ ] Cache de catálogo com Redis
 - [ ] Eventos de domínio (`OrderPaid`, `OrderShipped`) para notificação assíncrona
 - [ ] Observabilidade: métricas de negócio no Actuator + traces com OpenTelemetry

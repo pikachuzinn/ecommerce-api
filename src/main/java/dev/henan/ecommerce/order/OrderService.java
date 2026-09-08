@@ -12,6 +12,7 @@ import dev.henan.ecommerce.order.dto.OrderItemRequest;
 import dev.henan.ecommerce.order.dto.OrderResponse;
 import dev.henan.ecommerce.order.dto.OrderSummaryResponse;
 import dev.henan.ecommerce.order.dto.PaymentRequest;
+import dev.henan.ecommerce.order.shipping.ShippingCalculator;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
@@ -19,8 +20,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.Map;
+import java.util.TreeMap;
 
 @Service
 public class OrderService {
@@ -29,15 +31,18 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final OrderCodeGenerator codeGenerator;
+    private final ShippingCalculator shippingCalculator;
 
     public OrderService(OrderRepository orderRepository,
                         ProductRepository productRepository,
                         UserRepository userRepository,
-                        OrderCodeGenerator codeGenerator) {
+                        OrderCodeGenerator codeGenerator,
+                        ShippingCalculator shippingCalculator) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.codeGenerator = codeGenerator;
+        this.shippingCalculator = shippingCalculator;
     }
 
     /**
@@ -51,13 +56,17 @@ public class OrderService {
 
         // Consolida quantidades por produto antes de tocar no estoque: se o cliente
         // mandar o mesmo produto em duas linhas, a validacao precisa ver o total.
-        Map<Long, Integer> quantityByProduct = new LinkedHashMap<>();
+        //
+        // TreeMap, e nao LinkedHashMap: a iteracao sai ordenada por id de produto, entao
+        // duas transacoes concorrentes adquirem os locks sempre na mesma ordem. Com a
+        // ordem do cliente, um pedido [1, 2] e outro [2, 1] simultaneos travariam um ao
+        // outro e o Postgres mataria uma das transacoes por deadlock.
+        Map<Long, Integer> quantityByProduct = new TreeMap<>();
         for (OrderItemRequest item : request.items()) {
             quantityByProduct.merge(item.productId(), item.quantity(), Integer::sum);
         }
 
-        BigDecimal shippingFee = request.shippingFee() == null ? BigDecimal.ZERO : request.shippingFee();
-        Order order = new Order(codeGenerator.generate(), user, request.shippingAddress().toDomain(), shippingFee);
+        Order order = new Order(codeGenerator.generate(), user, request.shippingAddress().toDomain(), BigDecimal.ZERO);
 
         for (Map.Entry<Long, Integer> entry : quantityByProduct.entrySet()) {
             Long productId = entry.getKey();
@@ -74,6 +83,10 @@ public class OrderService {
             product.removeFromStock(quantity);
             order.addItem(product, quantity);
         }
+
+        // O frete depende do subtotal (frete gratis acima do piso), entao so pode ser
+        // calculado depois que todos os itens entraram.
+        order.applyShippingFee(shippingCalculator.calculate(order.getShippingAddress(), order.getItemsTotal()));
 
         return OrderResponse.from(orderRepository.save(order));
     }
@@ -115,16 +128,26 @@ public class OrderService {
     @Transactional
     public OrderResponse cancel(Long id, String userEmail) {
         Order order = getEntityWithDetails(id);
-        requireOwnerOrAdmin(order, requireUser(userEmail));
+        User requester = requireUser(userEmail);
+        requireOwnerOrAdmin(order, requester);
+
+        // Desistir antes de pagar e direito do cliente. Depois de pago, cancelar
+        // implica estorno, e estorno e operacao do suporte, nao do proprio comprador.
+        if (!requester.isAdmin() && order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            throw new BusinessException(
+                    "O pedido %s ja saiu do status PENDING_PAYMENT: o cancelamento precisa passar pelo suporte."
+                            .formatted(order.getCode()));
+        }
 
         boolean shouldRestoreStock = order.getStatus().holdsStock();
         order.cancel();
 
         if (shouldRestoreStock) {
-            for (OrderItem item : order.getItems()) {
-                productRepository.findByIdForUpdate(item.getProduct().getId())
-                        .ifPresent(product -> product.returnToStock(item.getQuantity()));
-            }
+            // Mesma ordem canonica de lock usada no fechamento do pedido.
+            order.getItems().stream()
+                    .sorted(Comparator.comparing((OrderItem item) -> item.getProduct().getId()))
+                    .forEach(item -> productRepository.findByIdForUpdate(item.getProduct().getId())
+                            .ifPresent(product -> product.returnToStock(item.getQuantity())));
         }
 
         return OrderResponse.from(order);

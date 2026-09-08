@@ -1,14 +1,16 @@
 package dev.henan.ecommerce.order.dto;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * O frete nao aparece aqui de proposito: quem calcula o valor cobrado e o
+ * servidor ({@code ShippingCalculator}), nunca o cliente.
+ */
 public record CreateOrderRequest(
 
         @NotEmpty(message = "O pedido precisa de ao menos um item.")
@@ -18,9 +20,6 @@ public record CreateOrderRequest(
 
         @NotNull(message = "O endereco de entrega e obrigatorio.")
         @Valid
-        AddressRequest shippingAddress,
-
-        @DecimalMin(value = "0.00", message = "O frete nao pode ser negativo.")
-        BigDecimal shippingFee
+        AddressRequest shippingAddress
 ) {
 }

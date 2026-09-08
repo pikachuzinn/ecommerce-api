@@ -11,12 +11,15 @@ import dev.henan.ecommerce.order.dto.AddressRequest;
 import dev.henan.ecommerce.order.dto.CreateOrderRequest;
 import dev.henan.ecommerce.order.dto.OrderItemRequest;
 import dev.henan.ecommerce.order.dto.OrderResponse;
+import dev.henan.ecommerce.order.payment.PixPayment;
+import dev.henan.ecommerce.order.shipping.ShippingCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -45,6 +48,11 @@ class OrderServiceTest {
     @Mock
     private OrderCodeGenerator codeGenerator;
 
+    // Calculo de frete e regra pura: usar a implementacao real deixa o teste
+    // exercitando o valor que o cliente vai realmente pagar.
+    @Spy
+    private ShippingCalculator shippingCalculator = new ShippingCalculator();
+
     @InjectMocks
     private OrderService orderService;
 
@@ -65,7 +73,7 @@ class OrderServiceTest {
     private CreateOrderRequest request(OrderItemRequest... items) {
         AddressRequest address = new AddressRequest(
                 "Rua das Flores", "100", null, "Centro", "Londrina", "PR", "86010-000");
-        return new CreateOrderRequest(List.of(items), address, new BigDecimal("25.00"));
+        return new CreateOrderRequest(List.of(items), address);
     }
 
     @Test
@@ -77,7 +85,9 @@ class OrderServiceTest {
 
         assertThat(notebook.getStockQuantity()).isEqualTo(3);
         assertThat(response.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
-        assertThat(response.total()).isEqualByComparingTo("2025.00");
+        // 2 x 1000.00 passa do piso de frete gratis: o total e so o dos itens.
+        assertThat(response.shippingFee()).isEqualByComparingTo("0.00");
+        assertThat(response.total()).isEqualByComparingTo("2000.00");
         verify(orderRepository).save(any(Order.class));
     }
 
@@ -150,6 +160,39 @@ class OrderServiceTest {
         when(userRepository.findByEmail("admin@teste.dev")).thenReturn(Optional.of(admin));
 
         assertThat(orderService.findById(5L, "admin@teste.dev").code()).isEqualTo("ORD-TEST");
+    }
+
+    @Test
+    @DisplayName("Cliente nao cancela pedido ja pago: estorno passa pelo suporte")
+    void clienteNaoCancelaPedidoPago() {
+        Order order = pendingOrderWith(notebook, 1);
+        order.pay(new PixPayment("txid-teste"));
+        when(orderRepository.findByIdWithDetails(5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.cancel(5L, CUSTOMER_EMAIL))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("suporte");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        verify(productRepository, never()).findByIdForUpdate(10L);
+    }
+
+    @Test
+    @DisplayName("Admin cancela pedido pago e o estoque volta")
+    void adminCancelaPedidoPago() {
+        Order order = pendingOrderWith(notebook, 2);
+        notebook.removeFromStock(2);
+        order.pay(new PixPayment("txid-teste"));
+        when(orderRepository.findByIdWithDetails(5L)).thenReturn(Optional.of(order));
+        when(productRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(notebook));
+
+        User admin = TestFixtures.admin(3L, "admin@teste.dev");
+        when(userRepository.findByEmail("admin@teste.dev")).thenReturn(Optional.of(admin));
+
+        OrderResponse response = orderService.cancel(5L, "admin@teste.dev");
+
+        assertThat(response.status()).isEqualTo(OrderStatus.CANCELED);
+        assertThat(notebook.getStockQuantity()).isEqualTo(5);
     }
 
     private Order pendingOrderWith(Product product, int quantity) {

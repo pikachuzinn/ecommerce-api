@@ -1,5 +1,6 @@
 package dev.henan.ecommerce.config;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,6 +21,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import java.util.List;
 
@@ -35,10 +37,13 @@ public class SecurityConfig {
     };
 
     private final List<String> allowedOrigins;
+    private final HandlerExceptionResolver handlerExceptionResolver;
 
     public SecurityConfig(
-            @Value("${app.cors.allowed-origins}") List<String> allowedOrigins) {
+            @Value("${app.cors.allowed-origins}") List<String> allowedOrigins,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver) {
         this.allowedOrigins = allowedOrigins;
+        this.handlerExceptionResolver = handlerExceptionResolver;
     }
 
     @Bean
@@ -59,7 +64,16 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
+                // Sem isto, token ausente ou expirado devolveria o corpo padrao do Spring
+                // Security, e nao o ApiError que o resto da API promete. Delegar ao
+                // HandlerExceptionResolver reaproveita o GlobalExceptionHandler: um unico
+                // contrato de erro, inclusive para o que falha antes do controller.
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint((request, response, exception) ->
+                                handlerExceptionResolver.resolveException(request, response, null, exception))
+                        .accessDeniedHandler((request, response, exception) ->
+                                handlerExceptionResolver.resolveException(request, response, null, exception)));
 
         return http.build();
     }
