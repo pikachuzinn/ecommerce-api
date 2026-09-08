@@ -12,8 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -26,17 +24,27 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Testcontainers
 // Cada caso roda em uma transacao que sofre rollback ao final: os testes ficam
 // independentes da ordem de execucao sem precisar recriar o container.
 @Transactional
 public abstract class AbstractIntegrationTest {
 
-    @Container
+    /**
+     * Container unico para toda a JVM de teste (padrao singleton).
+     *
+     * Com @Testcontainers o container morreria ao fim de cada classe, mas o Spring
+     * reaproveita o mesmo contexto entre as classes: a segunda classe apontaria para
+     * a porta de um container ja encerrado. Iniciando manualmente, o container vive
+     * enquanto a JVM viver e o Ryuk cuida de remove-lo no final.
+     */
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("ecommerce_test")
             .withUsername("test")
             .withPassword("test");
+
+    static {
+        POSTGRES.start();
+    }
 
     @DynamicPropertySource
     static void registerDatasource(DynamicPropertyRegistry registry) {
