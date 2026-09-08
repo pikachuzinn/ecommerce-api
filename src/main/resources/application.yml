@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: ecommerce-api
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ecommerce}
+    username: ${DB_USERNAME:ecommerce}
+    password: ${DB_PASSWORD:ecommerce}
+
+  jpa:
+    open-in-view: false          # evita queries lazy disparadas durante a serializacao da resposta
+    hibernate:
+      ddl-auto: validate         # o dono do schema e o Flyway; o Hibernate so confere
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 30
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+  threads:
+    virtual:
+      enabled: true              # virtual threads (Java 21+) para as requisicoes HTTP
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never       # o corpo de erro e montado pelo GlobalExceptionHandler
+    include-stacktrace: never
+
+app:
+  cors:
+    # Lista separada por virgula. Em producao: https://seu-front.com
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+  jwt:
+    # Em producao SEMPRE via variavel de ambiente. O default abaixo existe so para subir local.
+    secret: ${JWT_SECRET:troque-esta-chave-de-desenvolvimento-com-no-minimo-32-chars}
+    issuer: ecommerce-api
+    expiration-seconds: 3600
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+logging:
+  level:
+    dev.henan.ecommerce: INFO

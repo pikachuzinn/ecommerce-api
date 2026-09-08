@@ -1,0 +1,19 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+
+app:
+  cors:
+    allowed-origins: http://localhost:3000
+  jwt:
+    secret: chave-de-teste-com-mais-de-32-caracteres-ok
+    issuer: ecommerce-api-test
+    expiration-seconds: 600
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
